@@ -1,9 +1,7 @@
 import argparse
-import ipaddress
 import json
 import socket
 from typing import Any
-from urllib.parse import urlsplit
 
 
 def classify_url_type(hostname: str | None) -> str:
@@ -68,60 +66,11 @@ def resolve_ip_url(ip_address: str) -> dict[str, Any]:
         }
 
 
-def resolve_url(url: str) -> dict[str, Any]:
-    """Resolve a URL's hostname to IP addresses and classify its host."""
-    value = url.strip()
-    candidate = value if "://" in value else f"//{value}"
-    try:
-        parsed = urlsplit(candidate)
-        hostname = parsed.hostname
-        if not hostname or parsed.username or parsed.password:
-            raise ValueError
-        if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
-            raise ValueError
-    except ValueError:
-        return {
-            "url": value,
-            "host": None,
-            "ips": [],
-            "type": "Unknown",
-            "status": "invalid",
-        }
-
-    try:
-        records = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-        addresses = list(dict.fromkeys(record[4][0] for record in records))
-        if not addresses:
-            raise socket.gaierror("No addresses returned")
-    except (socket.gaierror, OSError):
-        return {
-            "url": value,
-            "host": hostname,
-            "ips": [],
-            "type": classify_url_type(hostname),
-            "status": "unresolved",
-        }
-
-    try:
-        ipaddress.ip_address(hostname)
-        url_type = "IP address"
-    except ValueError:
-        url_type = classify_url_type(hostname)
-
-    return {
-        "url": value,
-        "host": hostname,
-        "ips": addresses,
-        "type": url_type,
-        "status": "resolved",
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Resolve a URL to IP addresses, or an IP address to its hostname."
+        description="Resolve an IP address to a hostname and identify the URL type."
     )
-    parser.add_argument("target", help="URL, domain name, or IPv4/IPv6 address to inspect")
+    parser.add_argument("ip", help="IPv4 or IPv6 address to inspect")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -129,31 +78,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    try:
-        ipaddress.ip_address(args.target)
-        result = resolve_ip_url(args.target)
-        result["ips"] = [result["ip"]]
-    except ValueError:
-        result = resolve_url(args.target)
+    result = resolve_ip_url(args.ip)
 
     if args.json:
         print(json.dumps(result, indent=2))
         return
 
-    if "ip" in result and result["status"] == "resolved":
+    if result["status"] == "resolved":
         print(f"IP Address: {result['ip']}")
         print(f"Resolved URL: {result['url']}")
         print(f"URL Type: {result['type']}")
-    elif result["status"] == "resolved":
-        print(f"URL: {result['url']}")
-        print(f"Host: {result['host']}")
-        print(f"IP Address(es): {', '.join(result['ips'])}")
-        print(f"URL Type: {result['type']}")
     else:
-        print(f"URL/IP: {result.get('url', result.get('ip'))}")
-        print(f"Host: {result.get('host') or 'None'}")
-        print(f"URL Type: {result['type']}")
-        print(f"Status: {result['status']}")
+        print(f"IP Address: {result['ip']}")
+        print("Resolved URL: None")
+        print("URL Type: Unknown")
+        print("Status: no reverse DNS record found")
 
 
 if __name__ == "__main__":
